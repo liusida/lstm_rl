@@ -33,7 +33,7 @@ def get_last_checkpoint_iteration():
         max_checkpoint_iteration = 0
     return max_checkpoint_iteration
 
-def save_checkpoint(actor, critic, actor_optimizer, critic_optimizer, iteration, stop_conditions):
+def save_checkpoint(actor, critic, actor_optimizer, critic_optimizer, iteration):
     """
     Save training checkpoint.
     """
@@ -41,7 +41,6 @@ def save_checkpoint(actor, critic, actor_optimizer, critic_optimizer, iteration,
     checkpoint.env = ENV
     checkpoint.env_mask_velocity = ENV_MASK_VELOCITY 
     checkpoint.iteration = iteration
-    checkpoint.stop_conditions = stop_conditions
     checkpoint.hp = hp
     CHECKPOINT_PATH = BASE_CHECKPOINT_PATH + f"{iteration}/"
     pathlib.Path(CHECKPOINT_PATH).mkdir(parents=True, exist_ok=True) 
@@ -57,12 +56,14 @@ def save_checkpoint(actor, critic, actor_optimizer, critic_optimizer, iteration,
     torch.save(critic_optimizer.state_dict(), CHECKPOINT_PATH + "critic_optimizer.pt")
     wandb.save(CHECKPOINT_PATH + "*.pt")
 
-def start_or_resume_from_checkpoint(device):
+def start_or_resume_from_checkpoint(device, resume=True):
     """
     Create actor, critic, actor optimizer and critic optimizer from scratch
     or load from latest checkpoint if it exists. 
     """
-    max_checkpoint_iteration = get_last_checkpoint_iteration()
+    max_checkpoint_iteration = 0
+    if resume:
+        max_checkpoint_iteration = get_last_checkpoint_iteration()
     
     obsv_dim, action_dim, continuous_action_space = get_env_space()
     actor = Actor(obsv_dim,
@@ -74,12 +75,10 @@ def start_or_resume_from_checkpoint(device):
         
     actor_optimizer = optim.AdamW(actor.parameters(), lr=hp.actor_learning_rate)
     critic_optimizer = optim.AdamW(critic.parameters(), lr=hp.critic_learning_rate)
-    
-    stop_conditions = StopConditions()
-        
+            
     # If max checkpoint iteration is greater than zero initialise training with the checkpoint.
     if max_checkpoint_iteration > 0:
-        actor_state_dict, critic_state_dict, actor_optimizer_state_dict, critic_optimizer_state_dict, stop_conditions = load_checkpoint(device, max_checkpoint_iteration)
+        actor_state_dict, critic_state_dict, actor_optimizer_state_dict, critic_optimizer_state_dict = load_checkpoint(device, max_checkpoint_iteration)
         
         actor.load_state_dict(actor_state_dict, strict=True) 
         critic.load_state_dict(critic_state_dict, strict=True)
@@ -97,7 +96,7 @@ def start_or_resume_from_checkpoint(device):
                 if isinstance(v, torch.Tensor):
                     state[k] = v.to(device)
 
-    return actor, critic, actor_optimizer, critic_optimizer, max_checkpoint_iteration, stop_conditions
+    return actor, critic, actor_optimizer, critic_optimizer, max_checkpoint_iteration
     
 def load_checkpoint(device, iteration):
     """
@@ -117,6 +116,5 @@ def load_checkpoint(device, iteration):
     critic_optimizer_state_dict = torch.load(CHECKPOINT_PATH + "critic_optimizer.pt", map_location=torch.device(device))
     
     return (actor_state_dict, critic_state_dict,
-           actor_optimizer_state_dict, critic_optimizer_state_dict,
-           checkpoint.stop_conditions)
+           actor_optimizer_state_dict, critic_optimizer_state_dict)
        

@@ -18,19 +18,22 @@ from .trajectory import TrajectoryDataset
 
 
 class LSTMRL:
-    def __init__(self, seed=0) -> None:
-
+    def __init__(self) -> None:
         batch_count = hp.parallel_rollouts * hp.rollout_steps / hp.recurrent_seq_len / hp.batch_size
         print(f"batch_count: {batch_count}")
         assert batch_count >= 1., "Less than 1 batch per trajectory.  Are you sure that's what you want?"
 
         # Set random seed for consistant runs.
-        torch.random.manual_seed(seed)
-        np.random.seed(seed)
+        torch.random.manual_seed(hp.seed)
+        np.random.seed(hp.seed)
         # Set maximum threads for torch to avoid inefficient use of multiple cpu cores.
         torch.set_num_threads(1)
         self.train_device = "cuda" if torch.cuda.is_available() else "cpu"
         self.gather_device = "cuda" if torch.cuda.is_available() and not FORCE_CPU_GATHER else "cpu"
+
+        # Store parameters and variables used to stop training. 
+        self.best_reward: float = -1e6
+        self.fail_to_improve_count: int = 0
 
     def calc_discounted_return(self, rewards, discount, final_value):
         """
@@ -177,17 +180,17 @@ class LSTMRL:
                 padded_trajectories[key].append(torch.cat((value[i], padding)))
             padded_trajectories["advantages"].append(torch.cat((self.compute_advantages(rewards=trajectory_episodes["rewards"][i],
                                                                                         values=trajectory_episodes["values"][i],
-                                                                                        discount=DISCOUNT,
-                                                                                        gae_lambda=GAE_LAMBDA), single_padding)))
+                                                                                        discount=hp.discount,
+                                                                                        gae_lambda=hp.gae_lambda), single_padding)))
             padded_trajectories["discounted_returns"].append(torch.cat((self.calc_discounted_return(rewards=trajectory_episodes["rewards"][i],
-                                                                        discount=DISCOUNT,
+                                                                        discount=hp.discount,
                                                                         final_value=trajectory_episodes["values"][i][-1]), single_padding)))
         return_val = {k: torch.stack(v) for k, v in padded_trajectories.items()}
         return_val["seq_len"] = torch.tensor(len_episodes)
 
         return return_val
 
-    def train_model(self, actor, critic, actor_optimizer, critic_optimizer, iteration, stop_conditions):
+    def train_model(self, actor, critic, actor_optimizer, critic_optimizer, iteration):
 
         # Vector environment manages multiple instances of the environment.
         # A key difference between this and the standard gym environment is it automatically resets.
@@ -196,7 +199,7 @@ class LSTMRL:
         if ENV_MASK_VELOCITY:
             env = MaskVelocityWrapper(env)
 
-        while iteration < stop_conditions.max_iterations:
+        while iteration < hp.max_iterations:
 
             actor = actor.to(self.gather_device)
             critic = critic.to(self.gather_device)
@@ -215,12 +218,12 @@ class LSTMRL:
             mean_reward = terminal_episodes_rewards / (complete_episode_count)
 
             # Check stop conditions.
-            if mean_reward > stop_conditions.best_reward:
-                stop_conditions.best_reward = mean_reward
-                stop_conditions.fail_to_improve_count = 0
+            if mean_reward > self.best_reward:
+                self.best_reward = mean_reward
+                self.fail_to_improve_count = 0
             else:
-                stop_conditions.fail_to_improve_count += 1
-            if stop_conditions.fail_to_improve_count > hp.patience:
+                self.fail_to_improve_count += 1
+            if self.fail_to_improve_count > hp.patience:
                 print(f"Policy has not yielded higher reward for {hp.patience} iterations...  Stopping now.")
                 break
 
@@ -275,19 +278,23 @@ class LSTMRL:
                 "actor_loss": actor_loss,
                 "critic_loss": critic_loss,
                 "policy_entropy": torch.mean(surrogate_loss_2),
-                "actor": actor,
-                "value": critic,
+                "best_reward": self.best_reward,
+                "fail_to_improve_count": self.fail_to_improve_count,
             }
             wandb.log(record)
 
             if iteration % CHECKPOINT_FREQUENCY == 0:
-                save_checkpoint(actor, critic, actor_optimizer, critic_optimizer, iteration, stop_conditions)
+                save_checkpoint(actor, critic, actor_optimizer, critic_optimizer, iteration)
             iteration += 1
 
-        return stop_conditions.best_reward
+        return self.best_reward
 
     def train(self):
-        wandb.init(project="LSTM_RL")
-        actor, critic, actor_optimizer, critic_optimizer, iteration, stop_conditions = start_or_resume_from_checkpoint(device=self.train_device)
+        wandb.init(project="LSTM_RL", config=hp)
+        wandb.config.update({
+            "train_device": self.train_device,
+            "gather_device": self.gather_device,
+        })
+        actor, critic, actor_optimizer, critic_optimizer, iteration = start_or_resume_from_checkpoint(device=self.train_device, resume=False)
         wandb.watch([actor, critic], log="all")
-        score = self.train_model(actor, critic, actor_optimizer, critic_optimizer, iteration, stop_conditions)
+        score = self.train_model(actor, critic, actor_optimizer, critic_optimizer, iteration)
