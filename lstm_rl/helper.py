@@ -8,13 +8,15 @@ from torch import optim
 import wandb
 
 from .models import Actor, Critic
-from .parameters import *
+from .parameters import hp
+
+BASE_CHECKPOINT_PATH = f"checkpoints/{hp.experiment_name}/"
 
 def get_env_space():
     """
     Return obsvervation dimensions, action dimensions and whether or not action space is continuous.
     """
-    env = gym.make(ENV)
+    env = gym.make(hp.env)
     continuous_action_space = type(env.action_space) is gym.spaces.box.Box
     if continuous_action_space:
         action_dim =  env.action_space.shape[0]
@@ -38,10 +40,10 @@ def save_checkpoint(actor, critic, actor_optimizer, critic_optimizer, iteration)
     Save training checkpoint.
     """
     checkpoint = DotMap()
-    checkpoint.env = ENV
-    checkpoint.env_mask_velocity = ENV_MASK_VELOCITY 
+    checkpoint.env = hp.env
+    checkpoint.env_mask_velocity = hp.env_mask_velocity 
     checkpoint.iteration = iteration
-    checkpoint.hp = hp
+    # checkpoint.hp = hp
     CHECKPOINT_PATH = BASE_CHECKPOINT_PATH + f"{iteration}/"
     pathlib.Path(CHECKPOINT_PATH).mkdir(parents=True, exist_ok=True) 
     with open(CHECKPOINT_PATH + "parameters.pt", "wb") as f:
@@ -106,9 +108,9 @@ def load_checkpoint(device, iteration):
     with open(CHECKPOINT_PATH + "parameters.pt", "rb") as f:
         checkpoint = pickle.load(f)
         
-    assert ENV == checkpoint.env, "To resume training environment must match current settings."
-    assert ENV_MASK_VELOCITY == checkpoint.env_mask_velocity, "To resume training model architecture must match current settings."
-    assert hp == checkpoint.hp, "To resume training hyperparameters must match current settings."
+    assert hp.env == checkpoint.env, "To resume training environment must match current settings."
+    assert hp.env_mask_velocity == checkpoint.env_mask_velocity, "To resume training model architecture must match current settings."
+    # assert hp == checkpoint.hp, "To resume training hyperparameters must match current settings."
 
     actor_state_dict = torch.load(CHECKPOINT_PATH + "actor.pt", map_location=torch.device(device))
     critic_state_dict = torch.load(CHECKPOINT_PATH + "critic.pt", map_location=torch.device(device))

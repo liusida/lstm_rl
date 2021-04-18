@@ -1,0 +1,38 @@
+
+# if ENV == "CartPole-v1" and ENV_MASK_VELOCITY:
+#     # Working perfectly with patience.
+#     hp = HyperParameters(parallel_rollouts=32, rollout_steps=512, batch_size=128, recurrent_seq_len=8)
+
+# elif ENV == "Pendulum-v0" and ENV_MASK_VELOCITY:
+#     # Works well.     
+#     hp = HyperParameters(parallel_rollouts=32, rollout_steps=200, batch_size=512, recurrent_seq_len=8,
+#                          init_log_std_dev=1., trainable_std_dev=True, actor_learning_rate=1e-3, critic_learning_rate=1e-3)
+
+# elif ENV == "LunarLander-v2" and ENV_MASK_VELOCITY:
+#     # Works well.
+#     hp = HyperParameters(parallel_rollouts=32, rollout_steps=1024, batch_size=512, recurrent_seq_len=8, patience=1000) 
+
+# elif ENV == "LunarLanderContinuous-v2" and ENV_MASK_VELOCITY:
+#     # Works well.
+#     hp = HyperParameters(parallel_rollouts=32, rollout_steps=1024, batch_size=1024, recurrent_seq_len=8, trainable_std_dev=True,  patience=1000)
+    
+# elif ENV == "BipedalWalker-v2" and not ENV_MASK_VELOCITY:
+#     # Working :-D
+#     hp = HyperParameters(parallel_rollouts=8, rollout_steps=2048, batch_size=256, patience=1000, entropy_factor=1e-4,
+#                          init_log_std_dev=-1., trainable_std_dev=True, min_reward=-1.)
+    
+# elif ENV == "BipedalWalkerHardcore-v2" and not ENV_MASK_VELOCITY:
+#     # Working :-D
+#     hp = HyperParameters(batch_size=1024, parallel_rollouts=32, recurrent_seq_len=8, rollout_steps=2048, patience=10000, entropy_factor=1e-4, 
+#                          init_log_std_dev=-1., trainable_std_dev=True, min_reward=-1., hidden_size=256)
+# elif ENV == "HopperBulletEnv-v0" and not ENV_MASK_VELOCITY:
+#     # ??
+#     hp = HyperParameters(batch_size=128, parallel_rollouts=2, recurrent_seq_len=8, rollout_steps=2048, patience=10000, entropy_factor=1e-4, 
+#                          init_log_std_dev=-1., trainable_std_dev=True, min_reward=-1., hidden_size=256)
+# elif ENV == "Walker2DwithVisionEnv-v0" and not ENV_MASK_VELOCITY:
+#     # ??
+#     hp = HyperParameters(batch_size=128, parallel_rollouts=2, recurrent_seq_len=8, rollout_steps=2048, patience=10000, entropy_factor=1e-4, 
+#                          init_log_std_dev=-1., trainable_std_dev=True, min_reward=-1., hidden_size=256)
+
+# else:
+#     raise NotImplementedError

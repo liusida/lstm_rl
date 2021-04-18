@@ -10,12 +10,13 @@ import numpy as np
 import torch.nn.functional as F
 import time
 import wandb
+import pybullet_envs
 
-from .parameters import *
+from .parameters import hp
 from .helper import *
 from .wrapper.mask_velocity_wrapper import MaskVelocityWrapper
 from .trajectory import TrajectoryDataset
-
+from . import envs
 
 class LSTMRL:
     def __init__(self) -> None:
@@ -29,7 +30,7 @@ class LSTMRL:
         # Set maximum threads for torch to avoid inefficient use of multiple cpu cores.
         torch.set_num_threads(1)
         self.train_device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.gather_device = "cuda" if torch.cuda.is_available() and not FORCE_CPU_GATHER else "cpu"
+        self.gather_device = "cuda" if torch.cuda.is_available() and not hp.force_cpu_gather else "cpu"
 
         # Store parameters and variables used to stop training. 
         self.best_reward: float = -1e6
@@ -78,10 +79,12 @@ class LSTMRL:
                            "true_rewards": [],
                            "values": [],
                            "terminals": [],
-                           "actor_hidden_states": [],
-                           "actor_cell_states": [],
                            "critic_hidden_states": [],
                            "critic_cell_states": []}
+        for n in range(hp.num_lstm):
+            trajectory_data[f"actor_hidden_states_{n}"] = []
+            trajectory_data[f"actor_cell_states_{n}"] = []
+
         terminal = torch.ones(hp.parallel_rollouts)
 
         with torch.no_grad():
@@ -91,8 +94,9 @@ class LSTMRL:
             # Take 1 additional step in order to collect the state and value for the final state.
             for i in range(hp.rollout_steps):
 
-                trajectory_data["actor_hidden_states"].append(actor.hidden_cell[0].squeeze(0).cpu())
-                trajectory_data["actor_cell_states"].append(actor.hidden_cell[1].squeeze(0).cpu())
+                for n in range(hp.num_lstm):
+                    trajectory_data[f"actor_hidden_states_{n}"].append(actor.hidden_cells[n][0].squeeze(0).cpu())
+                    trajectory_data[f"actor_cell_states_{n}"].append(actor.hidden_cells[n][1].squeeze(0).cpu())
                 trajectory_data["critic_hidden_states"].append(critic.hidden_cell[0].squeeze(0).cpu())
                 trajectory_data["critic_cell_states"].append(critic.hidden_cell[1].squeeze(0).cpu())
 
@@ -195,8 +199,8 @@ class LSTMRL:
         # Vector environment manages multiple instances of the environment.
         # A key difference between this and the standard gym environment is it automatically resets.
         # Therefore when the done flag is active in the done vector the corresponding state is the first new state.
-        env = gym.vector.make(ENV, hp.parallel_rollouts, asynchronous=ASYNCHRONOUS_ENVIRONMENT)
-        if ENV_MASK_VELOCITY:
+        env = gym.vector.make(hp.env, hp.parallel_rollouts, asynchronous=hp.asynchronous_environment, render=hp.render)
+        if hp.env_mask_velocity:
             env = MaskVelocityWrapper(env)
 
         while iteration < hp.max_iterations:
@@ -240,7 +244,8 @@ class LSTMRL:
                 for batch in trajectory_dataset:
 
                     # Get batch
-                    actor.hidden_cell = (batch.actor_hidden_states[:1], batch.actor_cell_states[:1])
+                    for n in range(hp.num_lstm):
+                        actor.hidden_cells[n] = (batch.actor_hidden_states_0[:1], batch.actor_cell_states_0[:1]) # TODO: dynamic
 
                     # Update actor
                     actor_optimizer.zero_grad()
@@ -266,24 +271,25 @@ class LSTMRL:
                     critic_loss.backward()
                     critic_optimizer.step()
 
+                record = {
+                    "epoch_idx": epoch_idx,
+                    "iteration": iteration,
+                    "complete_episode_count": complete_episode_count,
+                    "total_reward": mean_reward,
+                    "actor_loss": actor_loss,
+                    "critic_loss": critic_loss,
+                    "policy_entropy": torch.mean(surrogate_loss_2),
+                    "best_reward": self.best_reward,
+                    "fail_to_improve_count": self.fail_to_improve_count,
+                }
+                wandb.log(record)
+                
             end_train_time = time.time()
             print(f"Iteration: {iteration},  Mean reward: {mean_reward}, Mean Entropy: {torch.mean(surrogate_loss_2)}, " +
                   f"complete_episode_count: {complete_episode_count}, Gather time: {end_gather_time - start_gather_time:.2f}s, " +
                   f"Train time: {end_train_time - start_train_time:.2f}s")
 
-            record = {
-                "iteration": iteration,
-                "complete_episode_count": complete_episode_count,
-                "total_reward": mean_reward,
-                "actor_loss": actor_loss,
-                "critic_loss": critic_loss,
-                "policy_entropy": torch.mean(surrogate_loss_2),
-                "best_reward": self.best_reward,
-                "fail_to_improve_count": self.fail_to_improve_count,
-            }
-            wandb.log(record)
-
-            if iteration % CHECKPOINT_FREQUENCY == 0:
+            if iteration % hp.checkpoint_frequency == 0:
                 save_checkpoint(actor, critic, actor_optimizer, critic_optimizer, iteration)
             iteration += 1
 
@@ -295,6 +301,6 @@ class LSTMRL:
             "train_device": self.train_device,
             "gather_device": self.gather_device,
         })
-        actor, critic, actor_optimizer, critic_optimizer, iteration = start_or_resume_from_checkpoint(device=self.train_device, resume=False)
+        actor, critic, actor_optimizer, critic_optimizer, iteration = start_or_resume_from_checkpoint(device=self.train_device, resume=True)
         wandb.watch([actor, critic], log="all")
         score = self.train_model(actor, critic, actor_optimizer, critic_optimizer, iteration)

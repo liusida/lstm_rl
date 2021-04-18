@@ -1,0 +1,15 @@
+experiment_name:              "Hopper-1"
+env:                          "HopperBulletEnv-v0"
+env_mask_velocity:            False
+asynchronous_environment:     False
+render:                       False
+batch_size:                   1
+parallel_rollouts:            1
+recurrent_seq_len:            8
+rollout_steps:                2048
+patience:                     10000
+entropy_factor:               1e-4
+init_log_std_dev:             -1.
+trainable_std_dev:            True
+min_reward:                   -1.
+hidden_size:                  64

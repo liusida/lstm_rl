@@ -1,9 +1,10 @@
+from typing import List
 import math
 from dataclasses import dataclass
 import torch
 import numpy as np
 
-from .parameters import *
+from .parameters import hp
 
 @dataclass
 class TrajectorBatch():
@@ -16,8 +17,9 @@ class TrajectorBatch():
     advantages: torch.tensor
     discounted_returns: torch.tensor
     batch_size: torch.tensor
-    actor_hidden_states: torch.tensor
-    actor_cell_states: torch.tensor
+    for n in range(hp.num_lstm): # ugly hack...
+        exec(f"actor_hidden_states_{n}: torch.tensor")
+        exec(f"actor_cell_states_{n}: torch.tensor")
     critic_hidden_states: torch.tensor
     critic_cell_states: torch.tensor
 
